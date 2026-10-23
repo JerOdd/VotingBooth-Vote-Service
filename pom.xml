@@ -9,33 +9,35 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.votingbooth</groupId>
-	<artifactId>vote-api</artifactId>
+	<artifactId>vote-service</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>vote-api</name>
-	<description>Vote API for VotingBooth</description>
+	<packaging>pom</packaging>
+	<name>vote-service</name>
+	<description>Vote Service for VotingBooth</description>
+	<modules>
+		<module>core</module>
+		<module>api</module>
+		<module>job</module>
+	</modules>
 	<properties>
 		<java.version>21</java.version>
+		<awssdk.version>2.55.5</awssdk.version>
 	</properties>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>software.amazon.awssdk</groupId>
+				<artifactId>bom</artifactId>
+				<version>${awssdk.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-jpa</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-flyway</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-database-postgresql</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.postgresql</groupId>
-			<artifactId>postgresql</artifactId>
+			<artifactId>spring-boot-starter</artifactId>
 		</dependency>
 
 		<dependency>
@@ -44,14 +46,5 @@
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
-
-	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.springframework.boot</groupId>
-				<artifactId>spring-boot-maven-plugin</artifactId>
-			</plugin>
-		</plugins>
-	</build>
 
 </project>
