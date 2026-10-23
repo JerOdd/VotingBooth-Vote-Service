@@ -36,8 +36,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-// Nightly sync of the Assemblée nationale's "Scrutins" archives, one per configured legislature, then of the censure motion
-// ballots. Each file is hashed: an unchanged file is skipped, a changed one is parsed, stored raw in S3, then its scrutin
+// Nightly sync of the Assemblée nationale's "Scrutins" archives, one per configured legislature, then of the ballots: censure
+// motions, and laws from the law service's links. Each file is hashed: an unchanged file is skipped, a changed one is parsed, stored raw in S3, then its scrutin
 // and all its rows are replaced. An invalid file is counted as failed without failing the run.
 @Service
 public class ParliamentSyncService {
@@ -55,6 +55,7 @@ public class ParliamentSyncService {
     private final ScrutinParser parser;
     private final ScrutinSyncService scrutinSyncService;
     private final CensureBallotService censureBallotService;
+    private final LawBallotService lawBallotService;
     private final ParliamentVoteJdbcRepository parliamentVoteRepository;
     private final SyncRunRepository syncRunRepository;
     private final Clock clock;
@@ -67,6 +68,7 @@ public class ParliamentSyncService {
     public ParliamentSyncService(ScrutinArchiveClient archiveClient, RawStorageClient rawStorageClient,
                                  ScrutinArchiveReader archiveReader, ScrutinParser parser,
                                  ScrutinSyncService scrutinSyncService, CensureBallotService censureBallotService,
+                                 LawBallotService lawBallotService,
                                  ParliamentVoteJdbcRepository parliamentVoteRepository, SyncRunRepository syncRunRepository,
                                  Clock clock,
                                  @Value("${assemblee-nationale.legislatures}") List<Integer> legislatures,
@@ -80,6 +82,7 @@ public class ParliamentSyncService {
         this.parser = parser;
         this.scrutinSyncService = scrutinSyncService;
         this.censureBallotService = censureBallotService;
+        this.lawBallotService = lawBallotService;
         this.parliamentVoteRepository = parliamentVoteRepository;
         this.syncRunRepository = syncRunRepository;
         this.clock = clock;
@@ -102,6 +105,8 @@ public class ParliamentSyncService {
             runs.add(syncLegislature(legislature, trigger, force));
         }
         censureBallotService.createBallots(SOURCE);
+        // After the scrutins, so that new ones can be linked. If the law service is down, the job fails here.
+        lawBallotService.syncBallots();
         List<Integer> failed = runs.stream().filter(run -> run.getStatus() == SyncStatus.FAILED).map(SyncRun::getLegislature).toList();
         if (!failed.isEmpty()) {
             throw new IllegalStateException("Sync failed for legislatures " + failed + ", see their sync_run");

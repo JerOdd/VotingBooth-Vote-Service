@@ -45,6 +45,7 @@ public class ParliamentSyncServiceTests {
     private RawStorageClient rawStorageClient;
     private ScrutinSyncService scrutinSyncService;
     private CensureBallotService censureBallotService;
+    private LawBallotService lawBallotService;
     private ParliamentVoteJdbcRepository parliamentVoteRepository;
     private SyncRunRepository syncRunRepository;
     private ParliamentSyncService service;
@@ -55,6 +56,7 @@ public class ParliamentSyncServiceTests {
         rawStorageClient = mock(RawStorageClient.class);
         scrutinSyncService = mock(ScrutinSyncService.class);
         censureBallotService = mock(CensureBallotService.class);
+        lawBallotService = mock(LawBallotService.class);
         parliamentVoteRepository = mock(ParliamentVoteJdbcRepository.class);
         syncRunRepository = mock(SyncRunRepository.class);
         when(syncRunRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -62,7 +64,7 @@ public class ParliamentSyncServiceTests {
         when(rawStorageClient.isVersioningEnabled()).thenReturn(true);
         when(rawStorageClient.put(any(), any())).thenReturn("v1");
         service = new ParliamentSyncService(archiveClient, rawStorageClient, new ScrutinArchiveReader(),
-                new ScrutinParser(new ScrutinKindClassifier()), scrutinSyncService, censureBallotService,
+                new ScrutinParser(new ScrutinKindClassifier()), scrutinSyncService, censureBallotService, lawBallotService,
                 parliamentVoteRepository, syncRunRepository, Clock.fixed(Instant.parse("2026-10-23T02:00:00Z"), ZoneOffset.UTC),
                 List.of(17), "https://example.org/{legislature}/Scrutins.json.zip", true, 2, Duration.ZERO);
     }
@@ -80,6 +82,7 @@ public class ParliamentSyncServiceTests {
         verify(scrutinSyncService).sync(eq("assemblee-nationale"), argThat(scrutin -> scrutin.externalId().equals("VTANR5L17V12")),
                 eq(key), eq("v1"), eq(sha256(ScrutinFixtures.read("VTANR5L17V12"))), any());
         verify(censureBallotService).createBallots("assemblee-nationale");
+        verify(lawBallotService).syncBallots();
     }
 
     @Test

@@ -22,13 +22,18 @@ public class Ballot {
     @Column(name = "kind", nullable = false)
     private BallotKind kind;
 
-    @Column(name = "source", nullable = false)
+    // A law ballot is about a law, by the law service's id; the others are about a scrutin, by its source's id.
+    @Column(name = "law_id", nullable = true)
+    private UUID lawId;
+
+    @Column(name = "source", nullable = true)
     private String source;
 
-    @Column(name = "external_id", nullable = false)
+    @Column(name = "external_id", nullable = true)
     private String externalId;
 
-    @Column(name = "title", nullable = false)
+    // Null on a law ballot: the law's title lives in the law service.
+    @Column(name = "title", nullable = true)
     private String title;
 
     @Column(name = "opens_at", nullable = false)
@@ -53,6 +58,10 @@ public class Ballot {
 
     public BallotKind getKind() {
         return kind;
+    }
+
+    public UUID getLawId() {
+        return lawId;
     }
 
     public String getSource() {

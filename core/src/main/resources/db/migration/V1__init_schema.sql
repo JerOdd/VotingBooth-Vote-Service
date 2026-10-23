@@ -149,19 +149,26 @@ GRANT SELECT ON ALL TABLES IN SCHEMA parliament TO vote_api;
 CREATE TABLE ballot.ballot (
     id UUID NOT NULL,
     kind VARCHAR(20) NOT NULL CHECK (kind IN ('LAW_FINAL_VOTE', 'CENSURE_MOTION', 'AMENDMENT')),
-    -- What the ballot is about, in the source's ids: the dossier (DLR...) for a law, the scrutin (VTAN...) otherwise.
-    source VARCHAR(50) NOT NULL,
-    external_id VARCHAR(50) NOT NULL,
-    title TEXT NOT NULL,
+    -- What the ballot is about: a law, by the law service's id (its title stays there), or a scrutin, by its source's id.
+    law_id UUID,
+    source VARCHAR(50),
+    external_id VARCHAR(50),
+    title TEXT,
     opens_at TIMESTAMP NOT NULL,
     status VARCHAR(10) NOT NULL CHECK (status IN ('OPEN', 'CLOSED')),
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
     PRIMARY KEY (id),
-    UNIQUE (kind, source, external_id)
+    UNIQUE (kind, source, external_id),
+    CHECK ((kind = 'LAW_FINAL_VOTE' AND law_id IS NOT NULL)
+        OR (kind <> 'LAW_FINAL_VOTE' AND source IS NOT NULL AND external_id IS NOT NULL AND title IS NOT NULL))
 );
 
--- A law can be voted several times (first reading, CMP...). The decisive scrutin is the Assemblée's last vote on the whole text.
+-- One ballot per law, found by its id when the law's page asks for its results.
+CREATE UNIQUE INDEX ballot_law_idx ON ballot.ballot (law_id) WHERE kind = 'LAW_FINAL_VOTE';
+
+-- A law can be voted several times (first reading, CMP...). The decisive scrutin is the Assemblée's last vote on the whole text,
+-- or for a law passed by 49.3 (no such vote) its last censure motion, with alignment OPPOSITE.
 CREATE TABLE ballot.ballot_parliament_vote (
     ballot_id UUID NOT NULL REFERENCES ballot.ballot (id) ON DELETE CASCADE,
     parliament_vote_id UUID NOT NULL REFERENCES parliament.parliament_vote (id),

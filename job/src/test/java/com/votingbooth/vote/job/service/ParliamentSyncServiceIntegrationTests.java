@@ -1,9 +1,12 @@
 package com.votingbooth.vote.job.service;
 
+import com.votingbooth.vote.core.dataaccess.repository.BallotRepository;
 import com.votingbooth.vote.core.model.entity.SyncRun;
 import com.votingbooth.vote.core.model.entity.SyncTrigger;
 import com.votingbooth.vote.job.dataaccess.client.assembleenationale.ScrutinArchiveClient;
+import com.votingbooth.vote.job.dataaccess.client.law.LawVoteLinkClient;
 import com.votingbooth.vote.job.dataaccess.client.storage.RawStorageClient;
+import com.votingbooth.vote.job.model.law.LawVoteLink;
 import com.votingbooth.vote.job.model.scrutin.ArchiveDownload;
 import com.votingbooth.vote.job.utils.ScrutinFixtures;
 import com.votingbooth.vote.job.utils.ScrutinKindClassifier;
@@ -24,9 +27,11 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,6 +47,7 @@ import static org.mockito.Mockito.*;
         "vote.sync.cron=-",
         "assemblee-nationale.legislatures=17,16",
         "assemblee-nationale.scrutins-archive-url=https://example.org/{legislature}/Scrutins.json.zip",
+        "clients.law.base-url=http://localhost:1",
         "storage.endpoint=http://localhost:1",
         "storage.region=us-east-1",
         "storage.bucket=vote-raw",
@@ -67,6 +73,12 @@ public class ParliamentSyncServiceIntegrationTests {
 
     @MockitoBean
     RawStorageClient rawStorageClient;
+
+    @MockitoBean
+    LawVoteLinkClient lawVoteLinkClient;
+
+    @Autowired
+    BallotRepository ballotRepository;
 
     @Autowired
     ParliamentSyncService parliamentSyncService;
@@ -138,6 +150,62 @@ public class ParliamentSyncServiceIntegrationTests {
     }
 
     @Test
+    void lawsBecomeBallotsDecidedByTheirLastVoteOnTheWholeText() {
+        serve(L17_URL, ScrutinFixtures.L17, null, null);
+        serve(L16_URL, ScrutinFixtures.L16, null, null);
+        UUID votedLaw = UUID.randomUUID();
+        UUID lawPassedBy493 = UUID.randomUUID();
+        UUID lawDecidedAtTheSenate = UUID.randomUUID();
+        when(lawVoteLinkClient.findAll()).thenReturn(List.of(
+                link(votedLaw, "VTANR5L16V1927", LawVoteLink.Kind.TEXT, false),
+                link(votedLaw, "VTANR5L16V81", LawVoteLink.Kind.TEXT, true),
+                link(lawPassedBy493, "VTANR5L16V1", LawVoteLink.Kind.MOTION, false),
+                link(lawPassedBy493, "VTANR5L17V1", LawVoteLink.Kind.MOTION, false),
+                new LawVoteLink(lawDecidedAtTheSenate, "senat", "VTSNR5L17V1", LawVoteLink.Kind.TEXT, true)));
+
+        parliamentSyncService.sync(SyncTrigger.MANUAL, false);
+        parliamentSyncService.sync(SyncTrigger.MANUAL, false);
+
+        assertEquals(3, count("SELECT count(*) FROM ballot.ballot WHERE kind = 'LAW_FINAL_VOTE'"));
+        assertEquals(4, count("""
+                SELECT count(*) FROM ballot.ballot_parliament_vote link JOIN ballot.ballot ballot ON ballot.id = link.ballot_id
+                WHERE ballot.kind = 'LAW_FINAL_VOTE'
+                """));
+
+        BallotRepository.DecisiveVote voted = ballotRepository.findDecisiveVote(votedLaw).orElseThrow();
+        assertEquals(LocalDate.of(2022, 7, 21), voted.getVoteDate());
+        assertEquals("ADOPTED", voted.getResult());
+        assertEquals("SAME", voted.getAlignment());
+        assertEquals(List.of(341, 116, 21, 1), List.of(voted.getCountFor(), voted.getCountAgainst(), voted.getCountAbstain(),
+                voted.getCountNonVoting()));
+
+        BallotRepository.DecisiveVote by493 = ballotRepository.findDecisiveVote(lawPassedBy493).orElseThrow();
+        assertEquals(LocalDate.of(2024, 10, 8), by493.getVoteDate()); // the latest of its two motions
+        assertEquals("REJECTED", by493.getResult());
+        assertEquals("OPPOSITE", by493.getAlignment());
+
+        assertTrue(ballotRepository.findDecisiveVote(lawDecidedAtTheSenate).isEmpty());
+    }
+
+    @Test
+    void lawBallotLinksFollowTheLawService() {
+        serve(L17_URL, ScrutinFixtures.L17, null, null);
+        serve(L16_URL, ScrutinFixtures.L16, null, null);
+        UUID law = UUID.randomUUID();
+        when(lawVoteLinkClient.findAll()).thenReturn(List.of(link(law, "VTANR5L16V1927", LawVoteLink.Kind.TEXT, true)));
+        parliamentSyncService.sync(SyncTrigger.MANUAL, false);
+
+        // A new reading: the law service now names another decisive scrutin.
+        when(lawVoteLinkClient.findAll()).thenReturn(List.of(
+                link(law, "VTANR5L16V1927", LawVoteLink.Kind.TEXT, false),
+                link(law, "VTANR5L16V81", LawVoteLink.Kind.TEXT, true)));
+        parliamentSyncService.sync(SyncTrigger.MANUAL, false);
+
+        assertEquals(LocalDate.of(2022, 7, 21), ballotRepository.findDecisiveVote(law).orElseThrow().getVoteDate());
+        assertEquals(1, count("SELECT count(*) FROM ballot.ballot WHERE kind = 'LAW_FINAL_VOTE'"));
+    }
+
+    @Test
     void secondRunSkipsEverything() {
         serve(L17_URL, ScrutinFixtures.L17, null, null);
         serve(L16_URL, ScrutinFixtures.L16, null, null);
@@ -197,6 +265,10 @@ public class ParliamentSyncServiceIntegrationTests {
     private void serve(String url, List<String> uids, String replacedUid, byte[] replacement) {
         when(archiveClient.download(url)).thenAnswer(invocation -> new ArchiveDownload(
                 ScrutinFixtures.zip(tempDir, System.nanoTime() + ".zip", uids, replacedUid, replacement), ARCHIVE));
+    }
+
+    private static LawVoteLink link(UUID lawId, String scrutin, LawVoteLink.Kind kind, boolean decisive) {
+        return new LawVoteLink(lawId, "assemblee-nationale", scrutin, kind, decisive);
     }
 
     private static void assertCounts(SyncRun run, int legislature, int created, int updated, int unchanged, int ignored, int failed) {

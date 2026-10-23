@@ -1,9 +1,10 @@
 package com.votingbooth.vote.job.model.law;
 
-// A scrutin the law service links to a dossier (its law_vote_link, from the dossier's voteRefs). Ids are the sources' own:
-// the vote service never sees the law service's internal ids.
-public record LawVoteLink(String lawSource, String lawExternalId, String lawTitle, String voteSource,
-                          String voteExternalId, Kind kind, boolean decisive) {
+import java.util.UUID;
+
+// law-api's GET /vote-links: a scrutin a law was voted in, the law by the law service's id. decisive marks the Assemblée's
+// last vote on the whole text; a law passed by 49.3 has none, only MOTION links (its censure motions).
+public record LawVoteLink(UUID lawId, String source, String scrutinExternalId, Kind kind, boolean decisive) {
 
     public enum Kind {
         TEXT,
